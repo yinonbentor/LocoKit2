@@ -10,6 +10,11 @@ A ground up rebuild of LocoKit, providing a modern Swift framework for timeline 
 - Activity type classification
 - Database import/export system ([documentation](docs/export/README.md))
 
+## Documentation
+
+- [API Guide](docs/API.md) — comprehensive guide to the LocoKit2 public API
+- [Import/Export](docs/export/README.md) — database import/export system
+
 ## Requirements
 
 - iOS 17.0+
