@@ -130,8 +130,8 @@ public private(set) var lastFilteredLocation: CLLocation?
 ### Permissions
 
 ```swift
-public var locationAuthorizationStatus: CLAuthorizationStatus
-public var motionAuthorizationStatus: CMAuthorizationStatus
+public internal(set) var locationAuthorizationStatus: CLAuthorizationStatus
+public internal(set) var motionAuthorizationStatus: CMAuthorizationStatus
 public var hasNecessaryPermissions: Bool   // location + motion both granted
 
 public func requestLocationAuthorization()           // requestAlwaysAuthorization
@@ -400,9 +400,23 @@ public func invalidate(itemId: String)
 `public final class Database` — GRDB-backed SQLite store.
 
 ```swift
-public static let highlander = Database()
-public static var pool: DatabasePool { highlander.pool }   // shared connection pool
-public private(set) lazy var pool: DatabasePool
+public final class Database: @unchecked Sendable {
+    public static let highlander = Database()
+    public static var pool: DatabasePool { highlander.pool }        // shared pool
+    public static var legacyPool: DatabasePool? { highlander.legacyPool }
+    public private(set) lazy var pool: DatabasePool
+    public var appGroup: AppGroup?
+}
+```
+
+Migration / lifecycle helpers:
+
+```swift
+public func runMigrations()
+public func doMigrations()
+public var havePendingMigrations: Bool
+public func eraseTheDb()
+public var appGroupDbDir: URL?
 ```
 
 The pool: 30 s busy timeout, up to 12 concurrent readers, stored at the app
