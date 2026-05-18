@@ -58,6 +58,18 @@ done in this stage.
   alongside the Step 4 fixtures. `Unit/MergeScoresTests.swift` covers the
   pure `ConsumptionScore` semantics now and points here.
 
+- **Merge happy-path / guard tests (plan Step 4b) and sample-pruning
+  idempotence (Step 4c).** Blocked, by design, on the deferred `Database`
+  injection seam (plan Step 7). `Merge.doIt()` and `TimelineItem`'s pruning
+  both write to `Database.pool` — the hard-coded singleton, not an injectable
+  pool — and operate on `@TimelineActor` `TimelineItem`s that have no
+  in-memory initialiser. The `TestDatabase` harness can't intercept those
+  writes without a one-line seam in `Database.swift` to point `pool` at a
+  test pool. That is a production change requiring maintainer sign-off and
+  was explicitly scoped out of the initial build (plan Step 7), so 4b/4c are
+  recorded here rather than faked. `Merge.isValid`'s circular / same-neighbor
+  guard logic is the high-value target to add once the seam exists.
+
 ## Known issues (surfaced by tests, not yet triaged)
 
 - **`CLLocationCoordinate2D.perpendicularDistance(to:)` — dead "before start"

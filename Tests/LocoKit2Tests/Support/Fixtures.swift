@@ -33,6 +33,30 @@ enum Fixtures {
         )
     }
 
+    /// A location with a *valid* velocity (course/speed plus their
+    /// accuracies set), so `CLLocation.invalidVelocity` is false. The plain
+    /// `makeCLLocation` leaves speedAccuracy at -1, which is always invalid.
+    static func makeMovingLocation(
+        latitude: CLLocationDegrees = -33.8688,
+        longitude: CLLocationDegrees = 151.2093,
+        horizontalAccuracy: CLLocationAccuracy = 10,
+        course: CLLocationDirection = 90,
+        speed: CLLocationSpeed = 10,
+        timestamp: Date
+    ) -> CLLocation {
+        CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            altitude: 0,
+            horizontalAccuracy: horizontalAccuracy,
+            verticalAccuracy: 10,
+            course: course,
+            courseAccuracy: 5,
+            speed: speed,
+            speedAccuracy: 5,
+            timestamp: timestamp
+        )
+    }
+
     static func makeSample(
         id: String = UUID().uuidString,
         date: Date = .now,
