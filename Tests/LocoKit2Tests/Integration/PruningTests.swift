@@ -19,7 +19,9 @@ import GRDB
         testDB.tearDown()
     }
 
-    private func sampleCount(_ itemId: String) async throws -> Int {
+    // static so it captures no (non-Sendable) instance self when called
+    // across the @TimelineActor boundary
+    private static func sampleCount(_ itemId: String) async throws -> Int {
         try await TimelineItem
             .fetchItem(itemId: itemId, includeSamples: true)?
             .samples?.count ?? -1
@@ -33,7 +35,7 @@ import GRDB
             try Fixtures.insertItem(db, samples: track, isVisit: false)
         }
 
-        let original = try await sampleCount(itemId)
+        let original = try await Self.sampleCount(itemId)
         #expect(original == 6)
 
         // first prune: collinear interior points are redundant -> dropped
@@ -41,7 +43,7 @@ import GRDB
             try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true)
         )
         try await item1.pruneSamples()
-        let afterFirst = try await sampleCount(itemId)
+        let afterFirst = try await Self.sampleCount(itemId)
         #expect(afterFirst < original)
         #expect(afterFirst >= 2)            // endpoints always survive
 
@@ -50,7 +52,7 @@ import GRDB
             try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true)
         )
         try await item2.pruneSamples()
-        let afterSecond = try await sampleCount(itemId)
+        let afterSecond = try await Self.sampleCount(itemId)
         #expect(afterSecond == afterFirst)  // idempotent
     }
 }
