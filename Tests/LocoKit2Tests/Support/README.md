@@ -47,12 +47,20 @@ interleave). `init` per test = fresh DB; `deinit` cleans the temp files.
 **Singleton-bound code** (anything that reaches the DB as `Database.pool`,
 e.g. `Merge`, pruning) is testable via the injection seam: call
 `installAsSharedPool()` so `Database.pool` is routed at the temp pool for
-the suite. `tearDown()` resets it (identity-checked, so serialized siblings
-can't clobber each other). Always inject *before* the first `Database.pool`
-access — touching it uninjected would lazily create the real app database.
+the suite. `tearDown()` resets it (identity-checked).
+
+**Critical:** the seam is one global. `@Suite(.serialized)` only serializes
+*within* a suite — Swift Testing runs separate top-level suites in parallel,
+so two independent seam-using suites WILL stomp each other's injection
+("no such table" / fetch→nil races). Every seam-using suite must be a
+nested suite under the single `@Suite(.serialized) DatabaseSeamSuites`
+parent, which forces all its descendants to run serially. Always inject
+*before* the first `Database.pool` access — touching it uninjected would
+lazily create the real app database.
 
 ```swift
-@Suite(.serialized) final class MyMergeTests {
+// add inside DatabaseSeamSuites in Integration/DatabaseSeamSuites.swift
+@Suite final class MyBugTests {
     let testDB: TestDatabase
     init() throws { testDB = try TestDatabase().installAsSharedPool() }
     deinit { testDB.tearDown() }
@@ -64,19 +72,21 @@ access — touching it uninjected would lazily create the real app database.
 }
 ```
 
-The seam itself (`Database.injectedPool`, `internal`, nil in production) is
-verified by `Integration/DatabaseInjectionSeamTests.swift`.
+The seam (`Database.injectedPool`, `internal`, nil in production) and all
+seam-bound suites live in `Integration/DatabaseSeamSuites.swift`.
 
 ## Step 4b / 4c — landed; deeper branches remaining
 
 Built on the Step 7 seam (`installAsSharedPool()`), using
 `Fixtures.insertItem` / `makeCollinearTrack`:
 
-- **`Integration/PruningTests.swift` (4c).** Trip-sample pruning:
-  redundant collinear points are removed and re-pruning is idempotent
-  (the source-documented invariant). *Remaining:* visit pruning, and
-  protected-edge-sample survival.
-- **`Integration/MergeTests.swift` (4b).** Non-adjacent items score
+  (all in `Integration/DatabaseSeamSuites.swift`):
+
+- **`PruningTests` (4c).** Trip-sample pruning: redundant collinear
+  points are removed and re-pruning is idempotent (the source-documented
+  invariant). *Remaining:* visit pruning, and protected-edge-sample
+  survival.
+- **`MergeTests` (4b).** Non-adjacent items score
   `.impossible` and `doIt()` is a safe no-op (guard + write-path safety).
   *Remaining:* the happy-path merge and the explicit circular /
   same-neighbor branches — these need a linked-timeline fixture (items

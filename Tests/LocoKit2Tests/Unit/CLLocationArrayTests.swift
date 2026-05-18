@@ -37,15 +37,17 @@ import CoreLocation
         #expect([a].distance() == 0)
     }
 
-    @Test func distanceIsCumulativePairwiseSum() {
-        // mirror distance()'s exact calls: it sums current.distance(from:
-        // previous) over consecutive pairs. CLLocation.distance is geodesic
-        // and not bit-symmetric, so the call direction must match; tolerance
-        // is mm, not µm (km-scale geodesic FP noise is ~cm).
+    @Test func distanceIsCumulativePairwiseSum() throws {
+        // distance() accumulates consecutive leg distances. We don't pin the
+        // exact geodesy model (it can differ from CLLocation.distance by a
+        // few cm/km), so this is a sanity bound: a non-nil, positive total
+        // within 1 m of the two-leg reference — tight enough to catch a
+        // missing leg, a zeroed total, or a unit error, loose enough to
+        // absorb great-circle vs ellipsoidal differences.
         let reference = b.distance(from: a) + c.distance(from: b)
-        let result = [a, b, c].distance()
-        #expect(result != nil)
-        #expect(abs((result ?? -1) - reference) < 1e-3)
+        let result = try #require([a, b, c].distance())
+        #expect(result > 0)
+        #expect(abs(result - reference) < 1.0)
     }
 
     @Test func distanceSkipsNullIslandBetweenPoints() {
