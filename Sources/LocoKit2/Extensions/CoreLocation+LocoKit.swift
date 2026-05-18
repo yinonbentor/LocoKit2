@@ -87,27 +87,36 @@ public extension CLLocationCoordinate2D {
             cos(lat1) * sin(lat) - sin(lat1) * cos(lat) * cos(lon - lon1)
         )
 
-        // Angular distances
-        let delta13 = acos(sin(lat1) * sin(lat) + cos(lat1) * cos(lat) * cos(lon - lon1))
-        let delta12 = acos(sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon2 - lon1))
+        // Angular distances. Clamp the acos argument to [-1, 1] so that
+        // floating-point error (e.g. for near-identical or antipodal
+        // coordinates) can't push it out of domain and yield NaN.
+        let delta13 = acos((sin(lat1) * sin(lat) + cos(lat1) * cos(lat) * cos(lon - lon1)).clamped(min: -1, max: 1))
+        let delta12 = acos((sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon2 - lon1)).clamped(min: -1, max: 1))
 
         // Cross-track distance
-        let crossTrackAngle = asin(sin(delta13) * sin(theta13 - theta12))
+        let crossTrackAngle = asin((sin(delta13) * sin(theta13 - theta12)).clamped(min: -1, max: 1))
         let crossTrackDistance = abs(earthRadius * crossTrackAngle)
 
-        // Along-track distance to the foot of the perpendicular
-        let alongTrackAngle = acos(cos(delta13) / cos(crossTrackAngle))
+        // Along-track distance to the foot of the perpendicular. acos() always
+        // returns a non-negative angle, so this can never tell us when the
+        // foot lies *behind* the start point.
+        let alongTrackAngle = acos((cos(delta13) / cos(crossTrackAngle)).clamped(min: -1, max: 1))
         let alongTrackDistance = alongTrackAngle * earthRadius
 
         let totalDistance = delta12 * earthRadius
 
-        if alongTrackDistance < 0 {
+        // The foot of the perpendicular falls before the start point when the
+        // point lies behind the start relative to the path direction, i.e.
+        // when the angle between the two bearings exceeds 90°. This must be
+        // tested via the bearing difference because alongTrackDistance, being
+        // derived from acos(), is never negative.
+        if cos(theta13 - theta12) < 0 {
             // The perpendicular foot falls before the start point
             let distanceToStart = delta13 * earthRadius
             return distanceToStart
         } else if alongTrackDistance > totalDistance {
             // The perpendicular foot falls beyond the end point
-            let delta23 = acos(sin(lat2) * sin(lat) + cos(lat2) * cos(lat) * cos(lon - lon2))
+            let delta23 = acos((sin(lat2) * sin(lat) + cos(lat2) * cos(lat) * cos(lon - lon2)).clamped(min: -1, max: 1))
             let distanceToEnd = delta23 * earthRadius
             return distanceToEnd
         } else {
