@@ -18,3 +18,15 @@ Layout:
 
 > The "how to add a regression test for a reported bug" recipe will be filled
 > in here once the test suites and DB harness are in place.
+
+## Known issues (surfaced by tests, not yet triaged)
+
+- **`CLLocationCoordinate2D.perpendicularDistance(to:)` — dead "before start"
+  branch.** `alongTrackDistance` is derived from `acos(...) * earthRadius`,
+  which is never negative, so the `if alongTrackDistance < 0` branch is
+  unreachable. A point projecting *before* a segment's start returns ≈0
+  instead of the distance to the start, which can let Douglas-Peucker
+  over-simplify such paths. Pinned via `withKnownIssue` in
+  `CoordinateMathTests.perpendicularFootBeforeStartReturnsDistanceToStart`;
+  that test will fail loudly if the source is ever fixed (delete the wrapper
+  then).
