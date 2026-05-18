@@ -1,0 +1,57 @@
+import Foundation
+import GRDB
+@testable import LocoKit2
+
+/// A clean, isolated, on-disk GRDB database for a single test.
+///
+/// LocoKit2's production `Database` is a singleton that opens a fixed file in
+/// the app container and has no in-memory mode. We don't touch it. Instead we
+/// build our own `DatabasePool` against a unique temp-directory file and run
+/// the *same* migrations the app runs (registered via the internal
+/// `Database` migration methods, exposed through `@testable`). The migration
+/// registration closures only touch the `db` they're given, never singleton
+/// state, so this is fully isolated from `Database.highlander`.
+///
+/// Usage (see Support/README.md): make a `@Suite(.serialized) final class`,
+/// build a `TestDatabase` in `init()`, and call `tearDown()` from `deinit`.
+final class TestDatabase {
+
+    let pool: DatabasePool
+    let directoryURL: URL
+    var databaseFileURL: URL { directoryURL.appendingPathComponent("test.sqlite") }
+
+    init() throws {
+        directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocoKit2Tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL, withIntermediateDirectories: true
+        )
+
+        var config = Configuration()
+        config.busyMode = .timeout(30)
+        pool = try DatabasePool(path: databaseFileURL.path, configuration: config)
+
+        // register and run the exact app migration set, in app order
+        var migrator = DatabaseMigrator()
+        let database = Database.highlander
+        database.addInitialSchema(to: &migrator)
+        database.addLastSavedTriggers(to: &migrator)
+        database.addEdgeTriggers(to: &migrator)
+        database.addSampleTriggers(to: &migrator)
+        database.addRTreeTriggers(to: &migrator)
+        try migrator.migrate(pool)
+    }
+
+    /// Idempotent. Safe to call explicitly and again from `deinit`.
+    func tearDown() {
+        // sqlite files can be unlinked while the pool still holds the fd on
+        // Darwin; the pool is released when this instance deallocates.
+        if FileManager.default.fileExists(atPath: directoryURL.path) {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+    }
+
+    deinit {
+        tearDown()
+    }
+}
