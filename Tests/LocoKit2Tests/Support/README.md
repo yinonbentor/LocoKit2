@@ -72,6 +72,18 @@ done in this stage.
 
 ## Known issues (surfaced by tests, not yet triaged)
 
+Full write-ups (root cause, impact, reproduction, suggested fix) live in
+[`known-issues/`](known-issues/):
+
+- [BUG-001](known-issues/BUG-001-perpendicular-distance-dead-before-start-branch.md)
+  — `perpendicularDistance(to:)` dead "before start" branch
+- [BUG-002](known-issues/BUG-002-histogram-probability-nan-single-value.md)
+  — `Histogram.probability(for:)` returns `NaN` for single-value data
+- [BUG-003](known-issues/BUG-003-chunked-unguarded-size.md)
+  — `Array.chunked(into:)` unguarded `size`
+
+Summaries:
+
 - **`Array.chunked(into:)` — unguarded `size`.** A `size` of `0` (or
   negative) is not rejected. On current Swift toolchains the underlying
   `stride(from:to:by:)` yields an empty sequence, so `chunked(into: 0)`
