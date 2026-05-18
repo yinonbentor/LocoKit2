@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import GRDB
 @testable import LocoKit2
 
 /// Shared test data builders.
@@ -33,16 +34,42 @@ enum Fixtures {
     }
 
     static func makeSample(
+        id: String = UUID().uuidString,
         date: Date = .now,
         movingState: MovingState = .stationary,
         recordingState: RecordingState = .recording,
+        disabled: Bool = false,
+        timelineItemId: String? = nil,
         location: CLLocation? = nil
     ) -> LocomotionSample {
-        LocomotionSample(
+        var sample = LocomotionSample(
+            id: id,
             date: date,
             movingState: movingState,
             recordingState: recordingState,
             location: location
+        )
+        sample.disabled = disabled
+        sample.timelineItemId = timelineItemId
+        return sample
+    }
+
+    /// Inserts a minimal valid `TimelineItemBase` row (satisfies every
+    /// NOT NULL column) so deferred FK references from samples resolve at
+    /// commit and the BEFORE-INSERT disabled/deleted check triggers can see a
+    /// parent. `isVisit` is arbitrary here; callers that care should build a
+    /// real item instead.
+    static func insertTimelineItemBase(
+        _ db: GRDB.Database, id: String, disabled: Bool = false
+    ) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO TimelineItemBase
+                    (id, isVisit, source, sourceVersion,
+                     disabled, deleted, locked, samplesChanged)
+                VALUES (?, 1, 'test', 'test', ?, 0, 0, 0)
+                """,
+            arguments: [id, disabled]
         )
     }
 }
