@@ -23,7 +23,7 @@ import GRDB
     @Test @TimelineActor
     func nonAdjacentItemsCannotMergeAndDoItIsANoOp() async throws {
         // two independent visits with no edges linking them
-        let (idA, idB) = try testDB.pool.write { db -> (String, String) in
+        let (idA, idB) = try await testDB.pool.write { db -> (String, String) in
             let a = try Fixtures.insertItem(
                 db, samples: Fixtures.makeCollinearTrack(count: 2), isVisit: true
             )
@@ -50,7 +50,7 @@ import GRDB
         let result = await merge.doIt()
         #expect(result == nil)
 
-        let (aDeleted, bDeleted) = try testDB.pool.read { db -> (Bool, Bool) in
+        let (aDeleted, bDeleted) = try await testDB.pool.read { db -> (Bool, Bool) in
             let a = try TimelineItemBase.fetchOne(db, key: idA)
             let b = try TimelineItemBase.fetchOne(db, key: idB)
             return (a?.deleted ?? true, b?.deleted ?? true)

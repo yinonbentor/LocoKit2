@@ -29,7 +29,7 @@ import GRDB
     func tripPruningRemovesRedundantPointsAndIsIdempotent() async throws {
         let track = Fixtures.makeCollinearTrack(count: 6, activityType: .car)
 
-        let itemId = try testDB.pool.write { db in
+        let itemId = try await testDB.pool.write { db in
             try Fixtures.insertItem(db, samples: track, isVisit: false)
         }
 
