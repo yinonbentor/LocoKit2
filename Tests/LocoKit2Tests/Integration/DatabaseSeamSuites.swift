@@ -98,8 +98,13 @@ struct DatabaseSeamSuites {
             #expect(bDeleted == false)
         }
 
-        // Circular edges (A -> B and B -> A): isValid() must reject because
-        // the merge would create a cycle on the keeper.
+        // Circular topology (keeper.next == deadman AND deadman.next ==
+        // keeper): isValid() must reject (would create a cycle on keeper).
+        //
+        // A persisted 2-cycle is impossible — TimelineItemBase has a CHECK
+        // (previousItemId IS NULL OR previousItemId <> nextItemId) that
+        // rejects it — so the guard is exercised on in-memory edge state,
+        // which is exactly what isValid() inspects.
         @Test @TimelineActor
         func circularEdgesAreRejected() async throws {
             let (idA, idB) = try await testDB.pool.write { db -> (String, String) in
@@ -109,25 +114,34 @@ struct DatabaseSeamSuites {
                 let b = try Fixtures.insertItem(
                     db, samples: Fixtures.makeCollinearTrack(count: 2), isVisit: true
                 )
-                try Fixtures.linkChain(db, [a, b])          // a -> b
-                try db.execute(                              // and b -> a (cycle)
-                    sql: "UPDATE TimelineItemBase SET nextItemId = ? WHERE id = ?",
-                    arguments: [a, b]
-                )
                 return (a, b)
             }
 
-            let itemA = try #require(
+            var itemA = try #require(
                 try await TimelineItem.fetchItem(itemId: idA, includeSamples: true)
             )
-            let itemB = try #require(
+            var itemB = try #require(
                 try await TimelineItem.fetchItem(itemId: idB, includeSamples: true)
             )
+            // form the cycle in memory only
+            itemA.base.nextItemId = idB
+            itemA.base.previousItemId = nil
+            itemB.base.nextItemId = idA
+            itemB.base.previousItemId = nil
+
             let list = await TimelineLinkedList(fromItems: [itemA, itemB])
             let merge = await Merge(keeper: itemA, deadman: itemB, in: list)
 
             #expect(merge.score == .impossible)   // deadman.next == keeper.id
             #expect(await merge.doIt() == nil)
+
+            let (aDeleted, bDeleted) = try await testDB.pool.read { db -> (Bool, Bool) in
+                let a = try TimelineItemBase.fetchOne(db, key: idA)
+                let b = try TimelineItemBase.fetchOne(db, key: idB)
+                return (a?.deleted ?? true, b?.deleted ?? true)
+            }
+            #expect(aDeleted == false)
+            #expect(bDeleted == false)
         }
 
         // Happy path: P -> K -> D, K and D are visits at the SAME confirmed
