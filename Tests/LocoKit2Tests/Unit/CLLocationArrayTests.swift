@@ -38,18 +38,23 @@ import CoreLocation
     }
 
     @Test func distanceIsCumulativePairwiseSum() {
-        let reference = a.distance(from: b) + b.distance(from: c)
+        // mirror distance()'s exact calls: it sums current.distance(from:
+        // previous) over consecutive pairs. CLLocation.distance is geodesic
+        // and not bit-symmetric, so the call direction must match; tolerance
+        // is mm, not µm (km-scale geodesic FP noise is ~cm).
+        let reference = b.distance(from: a) + c.distance(from: b)
         let result = [a, b, c].distance()
         #expect(result != nil)
-        #expect(abs((result ?? -1) - reference) < 1e-6)
+        #expect(abs((result ?? -1) - reference) < 1e-3)
     }
 
     @Test func distanceSkipsNullIslandBetweenPoints() {
         let nullIsland = CLLocation(latitude: 0, longitude: 0)
         // null island is dropped, so distance is measured a -> c directly
-        let reference = a.distance(from: c)
+        // (implementation calls c.distance(from: a))
+        let reference = c.distance(from: a)
         let result = [a, nullIsland, c].distance()
-        #expect(abs((result ?? -1) - reference) < 1e-6)
+        #expect(abs((result ?? -1) - reference) < 1e-3)
     }
 
     @Test func distanceOfOnlyUnusableIsNil() {
