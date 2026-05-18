@@ -72,6 +72,16 @@ done in this stage.
 
 ## Known issues (surfaced by tests, not yet triaged)
 
+- **`Array.chunked(into:)` — unguarded `size`.** A `size` of `0` (or
+  negative) is not rejected. On current Swift toolchains the underlying
+  `stride(from:to:by:)` yields an empty sequence, so `chunked(into: 0)`
+  silently returns `[]` — every element is dropped instead of trapping or
+  returning the input as one chunk. There is intentionally no executable
+  test (the behaviour is Swift-stride-version-dependent and a trap on some
+  toolchain would abort the suite); `ArrayHelpersTests` pins only the
+  well-defined `size >= 1` behaviour. A one-line `precondition(size > 0)`
+  or an early guard would close this.
+
 - **`CLLocationCoordinate2D.perpendicularDistance(to:)` — dead "before start"
   branch.** `alongTrackDistance` is derived from `acos(...) * earthRadius`,
   which is never negative, so the `if alongTrackDistance < 0` branch is
