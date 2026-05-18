@@ -19,6 +19,16 @@ Layout:
 > The "how to add a regression test for a reported bug" recipe will be filled
 > in here once the test suites and DB harness are in place.
 
+## Deferred tests (blocked on the temp-DB harness)
+
+- **MergeScores classifier-score thresholds (75 / 50 / 25 / 10%) and
+  percent-inside buckets.** Prime parameterized-boundary candidates, but the
+  logic lives in `private @TimelineActor async` methods reachable only with a
+  fully built `TimelineItem` (samples + classifier results). Add these as an
+  Integration suite once `Support/TestDatabase.swift` (Step 3) exists.
+  `Unit/MergeScoresTests.swift` covers the pure `ConsumptionScore` semantics
+  now and carries a pointer to this note.
+
 ## Known issues (surfaced by tests, not yet triaged)
 
 - **`CLLocationCoordinate2D.perpendicularDistance(to:)` — dead "before start"
