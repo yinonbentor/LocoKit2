@@ -104,25 +104,67 @@ enum Fixtures {
     static func makeCollinearTrack(
         count: Int,
         start: Date = Date(timeIntervalSince1970: 1_700_000_000),
+        secondsApart: TimeInterval = 1,
+        metresApart: Double = 1,
         activityType: ActivityType = .car
     ) -> [LocomotionSample] {
         let metresPerDegLon = 111_320.0
         return (0..<count).map { i in
-            let lon = 0.001 + (Double(i) * 1.0 / metresPerDegLon) // ~1 m apart
+            let lon = 0.001 + (Double(i) * metresApart / metresPerDegLon)
+            let ts = start.addingTimeInterval(Double(i) * secondsApart)
             let loc = CLLocation(
                 coordinate: CLLocationCoordinate2D(latitude: 0.001, longitude: lon),
                 altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5,
                 course: 90, courseAccuracy: 5, speed: 10, speedAccuracy: 5,
-                timestamp: start.addingTimeInterval(Double(i))
+                timestamp: ts
             )
             return makeSample(
-                date: start.addingTimeInterval(Double(i)),
+                date: ts,
                 movingState: .moving,
                 classifiedActivityType: activityType,
                 location: loc
             )
         }
     }
+
+    /// Inserts a private Place and returns it (id is a UUID).
+    static func insertPlace(
+        _ db: GRDB.Database, lat: Double = 0.001, lon: Double = 0.001
+    ) throws -> Place {
+        let place = Place(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+            name: "Fixture Place"
+        )
+        try place.insert(db)
+        return place
+    }
+
+    /// Marks a visit's place as confirmed (raw update; avoids the
+    /// @PlacesActor assignPlace path). The Place row must already exist.
+    static func confirmVisitPlace(
+        _ db: GRDB.Database, itemId: String, placeId: String
+    ) throws {
+        try db.execute(
+            sql: """
+                UPDATE TimelineItemVisit
+                SET placeId = ?, confirmedPlace = 1, uncertainPlace = 0
+                WHERE itemId = ?
+                """,
+            arguments: [placeId, itemId]
+        )
+    }
+
+    /// Links ids into a forward chain (ids[0] -> ids[1] -> ...). Setting
+    /// nextItemId fires the edge triggers that maintain previousItemId.
+    static func linkChain(_ db: GRDB.Database, _ ids: [String]) throws {
+        for i in 0 ..< (ids.count - 1) {
+            try db.execute(
+                sql: "UPDATE TimelineItemBase SET nextItemId = ? WHERE id = ?",
+                arguments: [ids[i + 1], ids[i]]
+            )
+        }
+    }
+
 
     /// Inserts a minimal valid `TimelineItemBase` row (satisfies every
     /// NOT NULL column) so deferred FK references from samples resolve at

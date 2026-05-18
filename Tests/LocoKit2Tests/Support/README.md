@@ -75,28 +75,32 @@ lazily create the real app database.
 The seam (`Database.injectedPool`, `internal`, nil in production) and all
 seam-bound suites live in `Integration/DatabaseSeamSuites.swift`.
 
-## Step 4b / 4c — landed; deeper branches remaining
+## Step 4b / 4c — complete
 
-Built on the Step 7 seam (`installAsSharedPool()`), using
-`Fixtures.insertItem` / `makeCollinearTrack`:
+All in `Integration/DatabaseSeamSuites.swift`, built on the Step 7 seam
+and `Fixtures` (`insertItem`, `makeCollinearTrack`, `insertPlace`,
+`confirmVisitPlace`, `linkChain`):
 
-  (all in `Integration/DatabaseSeamSuites.swift`):
+- **`MergeTests` (4b).** Non-adjacent → `.impossible` + `doIt()` no-op;
+  circular edges rejected; happy-path `P -> K -> D` at a shared confirmed
+  place where K consumes D (D deleted, D's samples reassigned to K, K
+  survives); plus the BUG-004 pin (see below).
+- **`PruningTests` (4c).** Trip pruning removes redundant collinear
+  points and is idempotent; visit pruning collapses the interior of a
+  2-hour stationary visit, is idempotent, and protects the 30-min
+  start/end edge samples.
 
-- **`PruningTests` (4c).** Trip-sample pruning: redundant collinear
-  points are removed and re-pruning is idempotent (the source-documented
-  invariant). *Remaining:* visit pruning, and protected-edge-sample
-  survival.
-- **`MergeTests` (4b).** Non-adjacent items score
-  `.impossible` and `doIt()` is a safe no-op (guard + write-path safety).
-  *Remaining:* the happy-path merge and the explicit circular /
-  same-neighbor branches — these need a linked-timeline fixture (items
-  with `nextItemId`/`previousItemId` edges, a shared confirmed `Place`,
-  and valid date ranges) plus correct merge scoring; deferred as a
-  focused follow-up.
-- **MergeScores classifier-score thresholds (75 / 50 / 25 / 10%) and
-  percent-inside buckets.** Still need a `TimelineItem` with samples +
-  classifier results. `Unit/MergeScoresTests.swift` covers the pure
-  `ConsumptionScore` semantics now and points here.
+### Genuinely out of scope (not a fixture gap)
+
+**MergeScores classifier-score thresholds (75 / 50 / 25 / 10%) and
+percent-inside buckets.** `consumptionScoreFor(trip:toConsumeTrip:)`
+branches on `sample.classifierResults`, which is
+`await ActivityClassifier.results(for:)` — it requires the bundled CoreML
+activity model and cannot be fabricated deterministically in a unit test.
+Testing it would mean shipping a fake classifier seam (a production
+change with no other benefit). Not worth it; `Unit/MergeScoresTests.swift`
+pins the pure `ConsumptionScore` semantics and that is the appropriate
+boundary.
 
 Each needs the same prerequisite: a fixture that builds a small linked
 `TimelineItem` timeline in the temp DB (via `TimelineItem.createItem(... db:)`
@@ -113,6 +117,8 @@ Full write-ups (root cause, impact, reproduction, suggested fix) live in
   — `Histogram.probability(for:)` returns `NaN` for single-value data
 - [BUG-003](known-issues/BUG-003-chunked-unguarded-size.md)
   — `Array.chunked(into:)` unguarded `size`
+- [BUG-004](known-issues/BUG-004-merge-same-neighbor-nil-edges.md)
+  — Merge same-neighbor guard misfires on `nil == nil` edges
 
 Summaries:
 

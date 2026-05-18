@@ -97,6 +97,132 @@ struct DatabaseSeamSuites {
             #expect(aDeleted == false)
             #expect(bDeleted == false)
         }
+
+        // Circular edges (A -> B and B -> A): isValid() must reject because
+        // the merge would create a cycle on the keeper.
+        @Test @TimelineActor
+        func circularEdgesAreRejected() async throws {
+            let (idA, idB) = try await testDB.pool.write { db -> (String, String) in
+                let a = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(count: 2), isVisit: true
+                )
+                let b = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(count: 2), isVisit: true
+                )
+                try Fixtures.linkChain(db, [a, b])          // a -> b
+                try db.execute(                              // and b -> a (cycle)
+                    sql: "UPDATE TimelineItemBase SET nextItemId = ? WHERE id = ?",
+                    arguments: [a, b]
+                )
+                return (a, b)
+            }
+
+            let itemA = try #require(
+                try await TimelineItem.fetchItem(itemId: idA, includeSamples: true)
+            )
+            let itemB = try #require(
+                try await TimelineItem.fetchItem(itemId: idB, includeSamples: true)
+            )
+            let list = await TimelineLinkedList(fromItems: [itemA, itemB])
+            let merge = await Merge(keeper: itemA, deadman: itemB, in: list)
+
+            #expect(merge.score == .impossible)   // deadman.next == keeper.id
+            #expect(await merge.doIt() == nil)
+        }
+
+        // Happy path: P -> K -> D, K and D are visits at the SAME confirmed
+        // place, K longer than D. The merge must succeed: K survives, D is
+        // deleted, and D's samples are reassigned to K. (The chain has a
+        // predecessor P so the nil-edge guard quirk below is not hit.)
+        @Test @TimelineActor
+        func keeperConsumesAdjacentDeadmanAtSamePlace() async throws {
+            let base = Date(timeIntervalSince1970: 1_700_000_000)
+            let (kId, dId) = try await testDB.pool.write { db -> (String, String) in
+                let place = try Fixtures.insertPlace(db)
+                let p = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(
+                        count: 2, start: base, secondsApart: 60,
+                        activityType: .stationary), isVisit: true)
+                let k = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(
+                        count: 5, start: base.addingTimeInterval(1000),
+                        secondsApart: 60, activityType: .stationary), isVisit: true)
+                let d = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(
+                        count: 3, start: base.addingTimeInterval(2000),
+                        secondsApart: 60, activityType: .stationary), isVisit: true)
+                try Fixtures.confirmVisitPlace(db, itemId: k, placeId: place.id)
+                try Fixtures.confirmVisitPlace(db, itemId: d, placeId: place.id)
+                try Fixtures.linkChain(db, [p, k, d])
+                return (k, d)
+            }
+
+            let keeper = try #require(
+                try await TimelineItem.fetchItem(itemId: kId, includeSamples: true))
+            let deadman = try #require(
+                try await TimelineItem.fetchItem(itemId: dId, includeSamples: true))
+            let list = await TimelineLinkedList(fromItems: [keeper, deadman])
+            let merge = await Merge(keeper: keeper, deadman: deadman, in: list)
+
+            #expect(merge.score != .impossible)
+            let result = await merge.doIt()
+            #expect(result != nil)
+            #expect(result?.kept.id == kId)
+            #expect(result?.killed.map(\.id).contains(dId) == true)
+
+            let (dDeleted, kDeleted, kSamples, dSamples) =
+                try await testDB.pool.read { db -> (Bool, Bool, Int, Int) in
+                    let d = try TimelineItemBase.fetchOne(db, key: dId)
+                    let k = try TimelineItemBase.fetchOne(db, key: kId)
+                    let kc = try LocomotionSample
+                        .filter(LocomotionSample.Columns.timelineItemId == kId)
+                        .fetchCount(db)
+                    let dc = try LocomotionSample
+                        .filter(LocomotionSample.Columns.timelineItemId == dId)
+                        .fetchCount(db)
+                    return (d?.deleted ?? false, k?.deleted ?? true, kc, dc)
+                }
+            #expect(dDeleted == true)        // deadman removed
+            #expect(kDeleted == false)       // keeper survives
+            #expect(kSamples == 8)           // 5 (K) + 3 (D) reassigned
+            #expect(dSamples == 0)           // none left on deadman
+        }
+
+        // KNOWN FAILURE (BUG-004): two adjacent items with no other
+        // neighbours should be mergeable, but the same-neighbor guard
+        // compares `deadman.nextItemId == keeper.previousItemId`; when both
+        // are nil, `nil == nil` is true, so the simplest valid 2-item merge
+        // is wrongly rejected as impossible. Pinned so the suite stays green
+        // and flips loudly if the guard is fixed.
+        @Test @TimelineActor
+        func twoItemAdjacentMergeShouldBePossible() async throws {
+            let base = Date(timeIntervalSince1970: 1_700_000_000)
+            let (kId, dId) = try await testDB.pool.write { db -> (String, String) in
+                let place = try Fixtures.insertPlace(db)
+                let k = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(
+                        count: 5, start: base, secondsApart: 60,
+                        activityType: .stationary), isVisit: true)
+                let d = try Fixtures.insertItem(
+                    db, samples: Fixtures.makeCollinearTrack(
+                        count: 3, start: base.addingTimeInterval(1000),
+                        secondsApart: 60, activityType: .stationary), isVisit: true)
+                try Fixtures.confirmVisitPlace(db, itemId: k, placeId: place.id)
+                try Fixtures.confirmVisitPlace(db, itemId: d, placeId: place.id)
+                try Fixtures.linkChain(db, [k, d])   // only K -> D, no predecessor
+                return (k, d)
+            }
+            let keeper = try #require(
+                try await TimelineItem.fetchItem(itemId: kId, includeSamples: true))
+            let deadman = try #require(
+                try await TimelineItem.fetchItem(itemId: dId, includeSamples: true))
+            let list = await TimelineLinkedList(fromItems: [keeper, deadman])
+            let merge = await Merge(keeper: keeper, deadman: deadman, in: list)
+
+            withKnownIssue("BUG-004: nil == nil same-neighbor guard blocks valid 2-item merge") {
+                #expect(merge.score != .impossible)
+            }
+        }
     }
 
     // MARK: - Step 4c: trip-sample pruning idempotence
@@ -138,6 +264,63 @@ struct DatabaseSeamSuites {
             try await item2.pruneSamples()
             let afterSecond = try await Self.sampleCount(itemId)
             #expect(afterSecond == afterFirst) // idempotent
+        }
+
+        private static func sampleExists(_ db: GRDB.Database, _ id: String) throws -> Bool {
+            try LocomotionSample.fetchOne(db, key: id) != nil
+        }
+
+        // Visit pruning: a 2-hour stationary visit sampled every 60 s. The
+        // interior (outside the 30-min edge windows) collapses via the
+        // 3-sample sliding window; re-running is a no-op (the documented
+        // idempotence invariant).
+        @Test @TimelineActor
+        func visitPruningRemovesRedundantSamplesAndIsIdempotent() async throws {
+            // 121 samples, 60 s apart -> spans 7200 s (2 h)
+            let track = Fixtures.makeCollinearTrack(
+                count: 121, secondsApart: 60, activityType: .stationary
+            )
+            let itemId = try await testDB.pool.write { db in
+                try Fixtures.insertItem(db, samples: track, isVisit: true)
+            }
+
+            #expect(try await Self.sampleCount(itemId) == 121)
+
+            let item1 = try #require(
+                try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true))
+            try await item1.pruneSamples()
+            let afterFirst = try await Self.sampleCount(itemId)
+            #expect(afterFirst < 121)            // interior collapsed
+
+            let item2 = try #require(
+                try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true))
+            try await item2.pruneSamples()
+            let afterSecond = try await Self.sampleCount(itemId)
+            #expect(afterSecond == afterFirst)   // idempotent
+        }
+
+        // Samples within 30 min of the visit's start/end are protected and
+        // must survive pruning even though they are stationary.
+        @Test @TimelineActor
+        func visitPruningProtectsEdgeSamples() async throws {
+            let track = Fixtures.makeCollinearTrack(
+                count: 121, secondsApart: 60, activityType: .stationary
+            )
+            let firstId = try #require(track.first).id
+            let lastId = try #require(track.last).id
+
+            let itemId = try await testDB.pool.write { db in
+                try Fixtures.insertItem(db, samples: track, isVisit: true)
+            }
+            let item = try #require(
+                try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true))
+            try await item.pruneSamples()
+
+            let (firstAlive, lastAlive) = try await testDB.pool.read { db -> (Bool, Bool) in
+                (try Self.sampleExists(db, firstId), try Self.sampleExists(db, lastId))
+            }
+            #expect(firstAlive)   // first sample is in the start edge window
+            #expect(lastAlive)    // last sample is in the end edge window
         }
     }
 }
