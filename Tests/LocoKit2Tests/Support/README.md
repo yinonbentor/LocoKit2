@@ -67,23 +67,26 @@ access — touching it uninjected would lazily create the real app database.
 The seam itself (`Database.injectedPool`, `internal`, nil in production) is
 verified by `Integration/DatabaseInjectionSeamTests.swift`.
 
-## Available to add (seam now exists; needs a TimelineItem fixture)
+## Step 4b / 4c — landed; deeper branches remaining
 
-The Step 7 injection seam is implemented and verified, so the following are
-no longer blocked on infrastructure — the remaining work for each is a
-`TimelineItem` builder (samples + edges in the temp DB), not a harness gap:
+Built on the Step 7 seam (`installAsSharedPool()`), using
+`Fixtures.insertItem` / `makeCollinearTrack`:
 
-- **Merge happy-path / guard tests (plan Step 4b).** `Merge.doIt()` writes
-  to `Database.pool`; with `installAsSharedPool()` that now lands in the
-  temp DB. High-value target: `Merge.isValid`'s circular / same-neighbor
-  guard logic.
-- **Sample-pruning idempotence (plan Step 4c).** Same story —
-  `TimelineItem` pruning writes to `Database.pool`; prune-twice == prune-once
-  and protected-edge survival are the targets.
+- **`Integration/PruningTests.swift` (4c).** Trip-sample pruning:
+  redundant collinear points are removed and re-pruning is idempotent
+  (the source-documented invariant). *Remaining:* visit pruning, and
+  protected-edge-sample survival.
+- **`Integration/MergeTests.swift` (4b).** Non-adjacent items score
+  `.impossible` and `doIt()` is a safe no-op (guard + write-path safety).
+  *Remaining:* the happy-path merge and the explicit circular /
+  same-neighbor branches — these need a linked-timeline fixture (items
+  with `nextItemId`/`previousItemId` edges, a shared confirmed `Place`,
+  and valid date ranges) plus correct merge scoring; deferred as a
+  focused follow-up.
 - **MergeScores classifier-score thresholds (75 / 50 / 25 / 10%) and
-  percent-inside buckets.** Reachable once a `TimelineItem` with samples +
-  classifier results can be built in the temp DB. `Unit/MergeScoresTests.swift`
-  covers the pure `ConsumptionScore` semantics now and points here.
+  percent-inside buckets.** Still need a `TimelineItem` with samples +
+  classifier results. `Unit/MergeScoresTests.swift` covers the pure
+  `ConsumptionScore` semantics now and points here.
 
 Each needs the same prerequisite: a fixture that builds a small linked
 `TimelineItem` timeline in the temp DB (via `TimelineItem.createItem(... db:)`

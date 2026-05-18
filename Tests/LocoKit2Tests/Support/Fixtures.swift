@@ -64,6 +64,7 @@ enum Fixtures {
         recordingState: RecordingState = .recording,
         disabled: Bool = false,
         timelineItemId: String? = nil,
+        classifiedActivityType: ActivityType? = nil,
         location: CLLocation? = nil
     ) -> LocomotionSample {
         var sample = LocomotionSample(
@@ -75,7 +76,52 @@ enum Fixtures {
         )
         sample.disabled = disabled
         sample.timelineItemId = timelineItemId
+        sample.classifiedActivityType = classifiedActivityType
         return sample
+    }
+
+    /// Inserts the samples, then builds a real `TimelineItem` from them via
+    /// the production `createItem` path (base/visit/trip rows + sample
+    /// reassignment + edge triggers). Returns the new item id. Must be called
+    /// inside a `pool.write`.
+    @discardableResult
+    static func insertItem(
+        _ db: GRDB.Database, samples: [LocomotionSample], isVisit: Bool
+    ) throws -> String {
+        for sample in samples {
+            try sample.insert(db)
+        }
+        let item = try TimelineItem.createItem(
+            from: samples, isVisit: isVisit, db: db
+        )
+        return item.id
+    }
+
+    /// A straight, evenly-timed, collinear track of `count` samples — dense
+    /// enough that Douglas–Peucker drops the interior points. Each sample
+    /// carries `activityType` as its classified type so a trip built from
+    /// them has a non-nil `activityType` (required by trip pruning).
+    static func makeCollinearTrack(
+        count: Int,
+        start: Date = Date(timeIntervalSince1970: 1_700_000_000),
+        activityType: ActivityType = .car
+    ) -> [LocomotionSample] {
+        let metresPerDegLon = 111_320.0
+        return (0..<count).map { i in
+            let lon = 0.001 + (Double(i) * 1.0 / metresPerDegLon) // ~1 m apart
+            let loc = CLLocation(
+                coordinate: CLLocationCoordinate2D(latitude: 0.001, longitude: lon),
+                altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5,
+                course: 90, courseAccuracy: 5, speed: 10, speedAccuracy: 5,
+                timestamp: start.addingTimeInterval(Double(i))
+            )
+            return makeSample(
+                date: start.addingTimeInterval(Double(i)),
+                movingState: .moving,
+                classifiedActivityType: activityType,
+                location: loc
+            )
+        }
     }
 
     /// Inserts a minimal valid `TimelineItemBase` row (satisfies every
