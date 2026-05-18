@@ -27,9 +27,13 @@ final class TestDatabase {
             at: directoryURL, withIntermediateDirectories: true
         )
 
+        // computed via directoryURL directly (databaseFileURL accesses self,
+        // which isn't allowed until `pool` is also initialized)
+        let fileURL = directoryURL.appendingPathComponent("test.sqlite")
+
         var config = Configuration()
         config.busyMode = .timeout(30)
-        pool = try DatabasePool(path: databaseFileURL.path, configuration: config)
+        pool = try DatabasePool(path: fileURL.path, configuration: config)
 
         // register and run the exact app migration set, in app order
         var migrator = DatabaseMigrator()
