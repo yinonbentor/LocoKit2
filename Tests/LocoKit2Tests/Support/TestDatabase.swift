@@ -48,8 +48,11 @@ final class TestDatabase {
 
     /// Idempotent. Safe to call explicitly and again from `deinit`.
     func tearDown() {
-        // sqlite files can be unlinked while the pool still holds the fd on
-        // Darwin; the pool is released when this instance deallocates.
+        // close the pool BEFORE unlinking. Removing the sqlite/-wal/-shm
+        // files while GRDB still holds their fds is an API violation that
+        // SQLite detects ("vnode unlinked while in use"). close() is
+        // idempotent enough here (a second close throws and is ignored).
+        try? pool.close()
         if FileManager.default.fileExists(atPath: directoryURL.path) {
             try? FileManager.default.removeItem(at: directoryURL)
         }
