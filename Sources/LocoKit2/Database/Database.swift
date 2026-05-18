@@ -17,10 +17,21 @@ public final class Database: @unchecked Sendable {
     // MARK: - Pool
 
     public static var pool: DatabasePool { return highlander.pool }
-    
+
     public static var legacyPool: DatabasePool? { return highlander.legacyPool }
 
-    public private(set) lazy var pool: DatabasePool = {
+    /// Test seam. When non-nil, `pool` returns this instead of the on-disk
+    /// app database. `internal`, so only reachable from within the module or
+    /// via `@testable import` — external consumers cannot touch it, and in
+    /// normal use it is always nil (zero production behaviour change).
+    /// Tests must set it to a temp pool and reset it to nil on teardown.
+    var injectedPool: DatabasePool?
+
+    public var pool: DatabasePool {
+        return injectedPool ?? defaultPool
+    }
+
+    private lazy var defaultPool: DatabasePool = {
         let dbUrl: URL
         if let appGroup, appGroup.localDatabaseOnly {
             dbUrl = appContainerDbUrl

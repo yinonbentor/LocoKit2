@@ -43,32 +43,51 @@ instance is a clean, isolated, migrated temp-file DB:
 
 `@Suite(.serialized)` is required for DB suites (shared global state must not
 interleave). `init` per test = fresh DB; `deinit` cleans the temp files.
-Target code paths that take a `db`/pool parameter; singleton-bound paths
-(`Database.pool`) need an injection seam first — a deferred follow-up, not
-done in this stage.
 
-## Deferred tests (blocked on the temp-DB harness)
+**Singleton-bound code** (anything that reaches the DB as `Database.pool`,
+e.g. `Merge`, pruning) is testable via the injection seam: call
+`installAsSharedPool()` so `Database.pool` is routed at the temp pool for
+the suite. `tearDown()` resets it (identity-checked, so serialized siblings
+can't clobber each other). Always inject *before* the first `Database.pool`
+access — touching it uninjected would lazily create the real app database.
 
+```swift
+@Suite(.serialized) final class MyMergeTests {
+    let testDB: TestDatabase
+    init() throws { testDB = try TestDatabase().installAsSharedPool() }
+    deinit { testDB.tearDown() }
+
+    @Test func reproducesBug() throws {
+        try Database.pool.write { db in /* seed */ }     // -> temp DB
+        ...
+    }
+}
+```
+
+The seam itself (`Database.injectedPool`, `internal`, nil in production) is
+verified by `Integration/DatabaseInjectionSeamTests.swift`.
+
+## Available to add (seam now exists; needs a TimelineItem fixture)
+
+The Step 7 injection seam is implemented and verified, so the following are
+no longer blocked on infrastructure — the remaining work for each is a
+`TimelineItem` builder (samples + edges in the temp DB), not a harness gap:
+
+- **Merge happy-path / guard tests (plan Step 4b).** `Merge.doIt()` writes
+  to `Database.pool`; with `installAsSharedPool()` that now lands in the
+  temp DB. High-value target: `Merge.isValid`'s circular / same-neighbor
+  guard logic.
+- **Sample-pruning idempotence (plan Step 4c).** Same story —
+  `TimelineItem` pruning writes to `Database.pool`; prune-twice == prune-once
+  and protected-edge survival are the targets.
 - **MergeScores classifier-score thresholds (75 / 50 / 25 / 10%) and
-  percent-inside buckets.** Prime parameterized-boundary candidates, but the
-  logic lives in `private @TimelineActor async` methods reachable only with a
-  fully built `TimelineItem` (samples + classifier results). The
-  `TestDatabase` harness now exists; the remaining blocker is a
-  `TimelineItem`/sample fixture builder. Add these as an Integration suite
-  alongside the Step 4 fixtures. `Unit/MergeScoresTests.swift` covers the
-  pure `ConsumptionScore` semantics now and points here.
+  percent-inside buckets.** Reachable once a `TimelineItem` with samples +
+  classifier results can be built in the temp DB. `Unit/MergeScoresTests.swift`
+  covers the pure `ConsumptionScore` semantics now and points here.
 
-- **Merge happy-path / guard tests (plan Step 4b) and sample-pruning
-  idempotence (Step 4c).** Blocked, by design, on the deferred `Database`
-  injection seam (plan Step 7). `Merge.doIt()` and `TimelineItem`'s pruning
-  both write to `Database.pool` — the hard-coded singleton, not an injectable
-  pool — and operate on `@TimelineActor` `TimelineItem`s that have no
-  in-memory initialiser. The `TestDatabase` harness can't intercept those
-  writes without a one-line seam in `Database.swift` to point `pool` at a
-  test pool. That is a production change requiring maintainer sign-off and
-  was explicitly scoped out of the initial build (plan Step 7), so 4b/4c are
-  recorded here rather than faked. `Merge.isValid`'s circular / same-neighbor
-  guard logic is the high-value target to add once the seam exists.
+Each needs the same prerequisite: a fixture that builds a small linked
+`TimelineItem` timeline in the temp DB (via `TimelineItem.createItem(... db:)`
+or equivalent). That builder is the next concrete step.
 
 ## Known issues (surfaced by tests, not yet triaged)
 

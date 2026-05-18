@@ -46,8 +46,23 @@ final class TestDatabase {
         try migrator.migrate(pool)
     }
 
+    /// Routes `Database.pool` (the production singleton) at this temp pool,
+    /// for testing code that reads the singleton directly (Merge, pruning,
+    /// etc). `tearDown()` resets it. Use only in `@Suite(.serialized)` DB
+    /// suites. Returns self for chaining in `init`.
+    @discardableResult
+    func installAsSharedPool() -> TestDatabase {
+        Database.highlander.injectedPool = pool
+        return self
+    }
+
     /// Idempotent. Safe to call explicitly and again from `deinit`.
     func tearDown() {
+        // only clear the seam if it still points at *our* pool, so a
+        // serialized sibling suite's injection is never clobbered
+        if Database.highlander.injectedPool === pool {
+            Database.highlander.injectedPool = nil
+        }
         // close the pool BEFORE unlinking. Removing the sqlite/-wal/-shm
         // files while GRDB still holds their fds is an API violation that
         // SQLite detects ("vnode unlinked while in use"). close() is
